@@ -5,6 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -45,6 +46,7 @@ export default function ProductsScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [selectedCategory, setSelectedCategory] =
     useState<CategoryOption | null>(null);
@@ -114,6 +116,7 @@ export default function ProductsScreen() {
   }, [loadCategories, loadProducts]);
 
   const resetForm = () => {
+    setEditingProduct(null);
     setSelectedCategory(null);
     setCategoryDropdownOpen(false);
     setProductName("");
@@ -149,9 +152,24 @@ export default function ProductsScreen() {
     setModalVisible(true);
   };
 
+  const openEditModal = (product: Product) => {
+    setEditingProduct(product);
+    setSelectedCategory(
+      categories.find((category) => category.id === product.categories_id) ?? null
+    );
+    setCategoryDropdownOpen(false);
+    setProductName(product.product_name ?? "");
+    setProductDescription(product.product_description ?? "");
+    setProductPrice(product.product_price ?? "");
+    setProductStock(product.product_stock ?? "");
+    setProductImage(product.product_image ?? "");
+    setModalVisible(true);
+  };
+
   const closeAddModal = () => {
     if (saving) return;
     setModalVisible(false);
+    resetForm();
   };
 
   const pickImage = async () => {
@@ -202,27 +220,97 @@ export default function ProductsScreen() {
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase
-      .from("product")
-      .insert(payload)
-      .select(
-        "id, categories_id, product_name, product_description, product_price, product_stock, product_image, status",
-      )
-      .single();
+    const { data, error } = editingProduct
+      ? await supabase.from("product").update(payload).eq("id", editingProduct.id)
+      : await supabase
+          .from("product")
+          .insert(payload)
+          .select(
+            "id, categories_id, product_name, product_description, product_price, product_stock, product_image, status",
+          )
+          .single();
 
     setSaving(false);
     if (error) {
       toast.error(
-        `${error.message}\n\nIf this is an RLS error, add an insert/select policy for public.product in Supabase.`,
-        "Could not add product"
+        `${error.message}\n\nIf this is an RLS error, add insert/update/select policies for public.product in Supabase.`,
+        editingProduct ? "Could not update product" : "Could not add product"
       );
       return;
     }
 
-    setProducts((current) => [data, ...current]);
+    if (editingProduct) {
+      setProducts((current) =>
+        current.map((item) =>
+          item.id === editingProduct.id
+            ? {
+                ...item,
+                categories_id: payload.categories_id,
+                product_name: payload.product_name,
+                product_description: payload.product_description,
+                product_price: payload.product_price,
+                product_stock: payload.product_stock,
+                product_image: payload.product_image,
+                status: payload.status,
+              }
+            : item
+        )
+      );
+    } else if (data) {
+      setProducts((current) => [data, ...current]);
+    }
     setModalVisible(false);
     resetForm();
-    toast.success("Product added successfully.", "Saved");
+    toast.success(
+      editingProduct
+        ? "Product updated successfully."
+        : "Product added successfully.",
+      "Saved"
+    );
+  };
+
+  const deleteProduct = (product: Product) => {
+    Alert.alert(
+      "Delete product",
+      `Are you sure you want to delete ${product.product_name || "this product"}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            if (!isSupabaseConfigured) {
+              toast.warning(
+                "Add Supabase URL and key in .env, then restart Expo.",
+                "Configuration"
+              );
+              return;
+            }
+
+            const { error } = await supabase
+              .from("product")
+              .update({
+                deleted_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", product.id);
+
+            if (error) {
+              toast.error(
+                `${error.message}\n\nIf this is an RLS error, add an update policy for public.product in Supabase.`,
+                "Could not delete product"
+              );
+              return;
+            }
+
+            setProducts((current) =>
+              current.filter((item) => item.id !== product.id)
+            );
+            toast.success("Product deleted successfully.", "Deleted");
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -449,9 +537,12 @@ export default function ProductsScreen() {
                     </Text>
                   </Pressable>
 
-                  <Pressable style={styles.cardAction}>
+                  <Pressable
+                    style={styles.cardAction}
+                    onPress={() => openEditModal(product)}
+                  >
                     <MaterialCommunityIcons
-                      name="checkbox-marked-outline"
+                      name="pencil-outline"
                       size={17}
                       color={palette.text}
                     />
@@ -460,7 +551,10 @@ export default function ProductsScreen() {
                     </Text>
                   </Pressable>
 
-                  <Pressable style={styles.cardAction}>
+                  <Pressable
+                    style={styles.cardAction}
+                    onPress={() => deleteProduct(product)}
+                  >
                     <MaterialCommunityIcons
                       name="trash-can-outline"
                       size={17}
@@ -495,7 +589,7 @@ export default function ProductsScreen() {
             ]}
           >
             <Text style={[styles.modalTitle, { color: palette.text }]}>
-              Add Product
+              {editingProduct ? "Edit Product" : "Add Product"}
             </Text>
 
             <ScrollView
@@ -710,7 +804,9 @@ export default function ProductsScreen() {
                   {saving ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.saveButtonText}>Save</Text>
+                    <Text style={styles.saveButtonText}>
+                      {editingProduct ? "Update" : "Save"}
+                    </Text>
                   )}
                 </Pressable>
               </View>

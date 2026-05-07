@@ -5,6 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -37,6 +38,7 @@ export default function CategoriesScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [categoryName, setCategoryName] = useState("");
   const [categoryDescription, setCategoryDescription] = useState("");
   const [image, setImage] = useState("");
@@ -80,6 +82,7 @@ export default function CategoriesScreen() {
   }, [loadCategories]);
 
   const resetForm = () => {
+    setEditingCategory(null);
     setCategoryName("");
     setCategoryDescription("");
     setImage("");
@@ -90,9 +93,18 @@ export default function CategoriesScreen() {
     setModalVisible(true);
   };
 
+  const openEditModal = (category: Category) => {
+    setEditingCategory(category);
+    setCategoryName(category.category_name ?? "");
+    setCategoryDescription(category.category_description ?? "");
+    setImage(category.image ?? "");
+    setModalVisible(true);
+  };
+
   const closeAddModal = () => {
     if (saving) return;
     setModalVisible(false);
+    resetForm();
   };
 
   const pickImage = async () => {
@@ -140,28 +152,95 @@ export default function CategoriesScreen() {
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase
-      .from("categories")
-      .insert(payload)
-      .select("id, category_name, category_description, image, status")
-      .single();
+    const { data, error } = editingCategory
+      ? await supabase.from("categories").update(payload).eq("id", editingCategory.id)
+      : await supabase
+          .from("categories")
+          .insert(payload)
+          .select("id, category_name, category_description, image, status")
+          .single();
 
     setSaving(false);
     if (error) {
       toast.error(
-        `${error.message}\n\nIf this is an RLS error, add an insert/select policy for public.categories in Supabase.`,
-        "Could not add category"
+        `${error.message}\n\nIf this is an RLS error, add insert/update/select policies for public.categories in Supabase.`,
+        editingCategory ? "Could not update category" : "Could not add category"
       );
       return;
     }
 
-    setCategories((current) => [
-      data,
-      ...current.filter((item) => item.id > 0),
-    ]);
+    if (editingCategory) {
+      setCategories((current) =>
+        current.map((item) =>
+          item.id === editingCategory.id
+            ? {
+                ...item,
+                category_name: payload.category_name,
+                category_description: payload.category_description,
+                image: payload.image,
+                status: payload.status,
+              }
+            : item
+        )
+      );
+    } else if (data) {
+      setCategories((current) => [
+        data,
+        ...current.filter((item) => item.id > 0),
+      ]);
+    }
     setModalVisible(false);
     resetForm();
-    toast.success("Category added successfully.", "Saved");
+    toast.success(
+      editingCategory
+        ? "Category updated successfully."
+        : "Category added successfully.",
+      "Saved"
+    );
+  };
+
+  const deleteCategory = (category: Category) => {
+    Alert.alert(
+      "Delete category",
+      `Are you sure you want to delete ${category.category_name || "this category"}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            if (!isSupabaseConfigured) {
+              toast.warning(
+                "Add Supabase URL and key in .env, then restart Expo.",
+                "Configuration"
+              );
+              return;
+            }
+
+            const { error } = await supabase
+              .from("categories")
+              .update({
+                deleted_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", category.id);
+
+            if (error) {
+              toast.error(
+                `${error.message}\n\nIf this is an RLS error, add an update policy for public.categories in Supabase.`,
+                "Could not delete category"
+              );
+              return;
+            }
+
+            setCategories((current) =>
+              current.filter((item) => item.id !== category.id)
+            );
+            toast.success("Category deleted successfully.", "Deleted");
+          },
+        },
+      ]
+    );
   };
 
   const filteredCategories = categories.filter((category) => {
@@ -362,16 +441,6 @@ export default function CategoriesScreen() {
                   </View>
                   <View style={styles.detailRow}>
                     <MaterialCommunityIcons
-                      name="image-outline"
-                      size={18}
-                      color={palette.muted}
-                    />
-                    <Text style={[styles.detailText, { color: palette.muted }]}>
-                      Image: {category.image ? "Selected" : "No image"}
-                    </Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <MaterialCommunityIcons
                       name="checkbox-marked-outline"
                       size={18}
                       color={palette.muted}
@@ -401,9 +470,12 @@ export default function CategoriesScreen() {
                     </Text>
                   </Pressable>
 
-                  <Pressable style={styles.cardAction}>
+                  <Pressable
+                    style={styles.cardAction}
+                    onPress={() => openEditModal(category)}
+                  >
                     <MaterialCommunityIcons
-                      name="checkbox-marked-outline"
+                      name="pencil-outline"
                       size={17}
                       color={palette.text}
                     />
@@ -412,7 +484,10 @@ export default function CategoriesScreen() {
                     </Text>
                   </Pressable>
 
-                  <Pressable style={styles.cardAction}>
+                  <Pressable
+                    style={styles.cardAction}
+                    onPress={() => deleteCategory(category)}
+                  >
                     <MaterialCommunityIcons
                       name="trash-can-outline"
                       size={17}
@@ -447,7 +522,7 @@ export default function CategoriesScreen() {
             ]}
           >
             <Text style={[styles.modalTitle, { color: palette.text }]}>
-              Add Category
+              {editingCategory ? "Edit Category" : "Add Category"}
             </Text>
 
             <TextInput
@@ -548,7 +623,9 @@ export default function CategoriesScreen() {
                 {saving ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.saveButtonText}>Save</Text>
+                  <Text style={styles.saveButtonText}>
+                    {editingCategory ? "Update" : "Save"}
+                  </Text>
                 )}
               </Pressable>
             </View>

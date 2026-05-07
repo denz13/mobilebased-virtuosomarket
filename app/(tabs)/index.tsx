@@ -40,6 +40,7 @@ export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const cartBounce = useRef(new Animated.Value(0)).current;
   const messageBounce = useRef(new Animated.Value(0)).current;
+  const menuBounce = useRef(new Animated.Value(0)).current;
   const drawerSlide = useRef(new Animated.Value(-320)).current;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -146,14 +147,17 @@ export default function HomeScreen() {
 
     const cartAnimation = createBounce(cartBounce, 0);
     const messageAnimation = createBounce(messageBounce, 350);
+    const menuAnimation = createBounce(menuBounce, 700);
     cartAnimation.start();
     messageAnimation.start();
+    menuAnimation.start();
 
     return () => {
       cartAnimation.stop();
       messageAnimation.stop();
+      menuAnimation.stop();
     };
-  }, [cartBounce, messageBounce]);
+  }, [cartBounce, menuBounce, messageBounce]);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: palette.bg }]} edges={["top"]}>
@@ -171,11 +175,13 @@ export default function HomeScreen() {
               accessibilityRole="button"
               accessibilityLabel="Open side navigation"
             >
-              <MaterialCommunityIcons
-                name="dots-horizontal"
-                size={26}
-                color="#FFFFFF"
-              />
+              <Animated.View style={{ transform: [{ translateY: menuBounce }] }}>
+                <MaterialCommunityIcons
+                  name="dots-horizontal"
+                  size={26}
+                  color="#FFFFFF"
+                />
+              </Animated.View>
             </Pressable>
             <View>
               <Text style={styles.heroWelcome}>Welcome back</Text>
