@@ -42,6 +42,15 @@ import {
 
 const DEFAULT_DOB = new Date(2000, 0, 1);
 
+function isConfirmationEmailError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("confirmation email") ||
+    normalized.includes("email confirmations") ||
+    normalized.includes("error sending")
+  );
+}
+
 function formatLocalYmd(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -105,6 +114,13 @@ export default function RegisterScreen() {
     });
     if (error) {
       setLoading(false);
+      if (isConfirmationEmailError(error.message)) {
+        Alert.alert(
+          "Turn off email confirmation",
+          "Supabase is still trying to send a confirmation email. Go to Supabase Dashboard → Authentication → Providers → Email, then turn OFF Confirm email / Enable email confirmations. After saving, create the account again."
+        );
+        return;
+      }
       Alert.alert("Sign up failed", error.message);
       return;
     }
