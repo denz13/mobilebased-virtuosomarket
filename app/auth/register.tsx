@@ -9,7 +9,6 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -23,6 +22,7 @@ import {
 } from "react-native";
 
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { useToast } from "@/lib/toast";
 import {
     SafeAreaView,
     useSafeAreaInsets,
@@ -60,6 +60,7 @@ function formatLocalYmd(d: Date): string {
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const toast = useToast();
   const [heroBlockHeight, setHeroBlockHeight] = useState(0);
   const [firstName, setFirstName] = useState("");
   const [middleName, setMiddleName] = useState("");
@@ -78,23 +79,23 @@ export default function RegisterScreen() {
 
   const createAccount = useCallback(async () => {
     if (!isSupabaseConfigured) {
-      Alert.alert(
-        "Configuration",
-        "Add EXPO_PUBLIC_SUPABASE_URL and a key. If sign-up fails with invalid API key, set EXPO_PUBLIC_SUPABASE_ANON_KEY (legacy anon JWT from API Keys). Restart: npx expo start -c"
+      toast.warning(
+        "Add EXPO_PUBLIC_SUPABASE_URL and a key. If sign-up fails with invalid API key, set EXPO_PUBLIC_SUPABASE_ANON_KEY (legacy anon JWT from API Keys). Restart: npx expo start -c",
+        "Configuration"
       );
       return;
     }
     const trimmedEmail = email.trim();
     if (!firstName.trim() || !lastName.trim()) {
-      Alert.alert("Missing fields", "Please enter your first and last name.");
+      toast.warning("Please enter your first and last name.", "Missing fields");
       return;
     }
     if (!trimmedEmail || !password) {
-      Alert.alert("Missing fields", "Please enter email and password.");
+      toast.warning("Please enter email and password.", "Missing fields");
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert("Passwords do not match", "Please confirm your password.");
+      toast.warning("Please confirm your password.", "Passwords do not match");
       return;
     }
     setLoading(true);
@@ -115,13 +116,13 @@ export default function RegisterScreen() {
     if (error) {
       setLoading(false);
       if (isConfirmationEmailError(error.message)) {
-        Alert.alert(
-          "Turn off email confirmation",
-          "Supabase is still trying to send a confirmation email. Go to Supabase Dashboard → Authentication → Providers → Email, then turn OFF Confirm email / Enable email confirmations. After saving, create the account again."
+        toast.warning(
+          "Supabase is still trying to send a confirmation email. Go to Supabase Dashboard → Authentication → Providers → Email, then turn OFF Confirm email / Enable email confirmations. After saving, create the account again.",
+          "Turn off email confirmation"
         );
         return;
       }
-      Alert.alert("Sign up failed", error.message);
+      toast.error(error.message, "Sign up failed");
       return;
     }
     if (data.session) {
@@ -141,9 +142,9 @@ export default function RegisterScreen() {
       router.replace("/(tabs)");
       return;
     }
-    Alert.alert(
-      "Check your email",
-      "Confirm your address to finish creating your account, then log in."
+    toast.info(
+      "Confirm your address to finish creating your account, then log in.",
+      "Check your email"
     );
     router.replace("/auth/login");
   }, [
@@ -157,6 +158,7 @@ export default function RegisterScreen() {
     dob,
     address,
     router,
+    toast,
   ]);
 
   const onHeroLayout = useCallback((e: LayoutChangeEvent) => {

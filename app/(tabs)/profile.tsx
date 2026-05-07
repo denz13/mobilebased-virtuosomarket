@@ -1,13 +1,14 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import type { ComponentProps } from "react";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -15,18 +16,39 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useToast } from "@/lib/toast";
 
 type ProfileUser = {
   email: string | null;
   fullName: string | null;
+  firstName: string | null;
+  middleName: string | null;
+  lastName: string | null;
+  suffix: string | null;
+  dateOfBirth: string | null;
+  address: string | null;
+  userId: string | null;
+  createdAt: string | null;
+};
+
+type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
+type InfoItem = {
+  icon: MaterialIconName;
+  label: string;
+  value: string | null | undefined;
+  kind: "email" | "metadata" | "password";
+  metadataKey?: string;
+  localKey?: keyof ProfileUser;
 };
 
 export default function ProfileScreen() {
-  const router = useRouter();
   const colorScheme = useColorScheme();
+  const toast = useToast();
   const isDark = colorScheme === "dark";
   const [loading, setLoading] = useState(true);
-  const [signingOut, setSigningOut] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editTarget, setEditTarget] = useState<InfoItem | null>(null);
+  const [editValue, setEditValue] = useState("");
   const [user, setUser] = useState<ProfileUser | null>(null);
 
   const palette = {
@@ -60,6 +82,14 @@ export default function ProfileScreen() {
       setUser({
         email: data.user.email ?? null,
         fullName: fullName.trim() || null,
+        firstName: data.user.user_metadata.first_name ?? null,
+        middleName: data.user.user_metadata.middle_name ?? null,
+        lastName: data.user.user_metadata.last_name ?? null,
+        suffix: data.user.user_metadata.suffix ?? null,
+        dateOfBirth: data.user.user_metadata.date_of_birth ?? null,
+        address: data.user.user_metadata.address ?? null,
+        userId: data.user.id ?? null,
+        createdAt: data.user.created_at ?? null,
       });
       setLoading(false);
     };
@@ -69,22 +99,129 @@ export default function ProfileScreen() {
     };
   }, []);
 
-  const handleSignOut = async () => {
+  const personalInfo: InfoItem[] = [
+    { icon: "email-outline", label: "Email", value: user?.email, kind: "email" },
+    {
+      icon: "lock-outline",
+      label: "Password",
+      value: "Hidden for security",
+      kind: "password",
+    },
+    {
+      icon: "account-outline",
+      label: "First name",
+      value: user?.firstName,
+      kind: "metadata",
+      metadataKey: "first_name",
+      localKey: "firstName",
+    },
+    {
+      icon: "account-outline",
+      label: "Middle name",
+      value: user?.middleName,
+      kind: "metadata",
+      metadataKey: "middle_name",
+      localKey: "middleName",
+    },
+    {
+      icon: "account-outline",
+      label: "Last name",
+      value: user?.lastName,
+      kind: "metadata",
+      metadataKey: "last_name",
+      localKey: "lastName",
+    },
+    {
+      icon: "badge-account-outline",
+      label: "Suffix",
+      value: user?.suffix,
+      kind: "metadata",
+      metadataKey: "suffix",
+      localKey: "suffix",
+    },
+    {
+      icon: "calendar-outline",
+      label: "Date of birth",
+      value: user?.dateOfBirth,
+      kind: "metadata",
+      metadataKey: "date_of_birth",
+      localKey: "dateOfBirth",
+    },
+    {
+      icon: "map-marker-outline",
+      label: "Address",
+      value: user?.address,
+      kind: "metadata",
+      metadataKey: "address",
+      localKey: "address",
+    },
+  ];
+
+  const openEdit = (item: InfoItem) => {
+    setEditTarget(item);
+    setEditValue(item.kind === "password" ? "" : item.value ?? "");
+  };
+
+  const closeEdit = () => {
+    if (saving) return;
+    setEditTarget(null);
+    setEditValue("");
+  };
+
+  const saveEdit = async () => {
+    if (!editTarget) return;
     if (!isSupabaseConfigured) {
-      Alert.alert(
-        "Configuration",
-        "Add EXPO_PUBLIC_SUPABASE_URL and a key in .env, then restart the app."
+      toast.warning(
+        "Add EXPO_PUBLIC_SUPABASE_URL and a key in .env, then restart the app.",
+        "Configuration"
       );
       return;
     }
-    setSigningOut(true);
-    const { error } = await supabase.auth.signOut();
-    setSigningOut(false);
-    if (error) {
-      Alert.alert("Sign out failed", error.message);
+    const nextValue = editValue.trim();
+    if ((editTarget.kind === "email" || editTarget.kind === "password") && !nextValue) {
+      toast.warning(
+        `Enter a new ${editTarget.label.toLowerCase()}.`,
+        "Missing value"
+      );
       return;
     }
-    router.replace("/auth/login");
+    if (editTarget.kind === "password" && nextValue.length < 6) {
+      toast.warning(
+        "Password must be at least 6 characters.",
+        "Password too short"
+      );
+      return;
+    }
+
+    setSaving(true);
+    const { error } =
+      editTarget.kind === "email"
+        ? await supabase.auth.updateUser({ email: nextValue })
+        : editTarget.kind === "password"
+          ? await supabase.auth.updateUser({ password: nextValue })
+          : await supabase.auth.updateUser({
+              data: { [editTarget.metadataKey ?? ""]: nextValue || null },
+            });
+    setSaving(false);
+
+    if (error) {
+      toast.error(error.message, "Update failed");
+      return;
+    }
+
+    setUser((current) => {
+      if (!current) return current;
+      if (editTarget.kind === "email") return { ...current, email: nextValue };
+      if (editTarget.kind === "password" || !editTarget.localKey) return current;
+      const updated = { ...current, [editTarget.localKey]: nextValue || null };
+      return {
+        ...updated,
+        fullName:
+          `${updated.firstName ?? ""} ${updated.lastName ?? ""}`.trim() || null,
+      };
+    });
+    toast.success(`${editTarget.label} updated successfully.`, "Updated");
+    closeEdit();
   };
 
   return (
@@ -119,45 +256,6 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.actionPrimary]}
-              activeOpacity={0.8}
-            >
-              <MaterialCommunityIcons
-                name="pencil-outline"
-                size={18}
-                color="#FFFFFF"
-              />
-              <Text style={styles.actionPrimaryText}>Edit profile</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.actionSecondary]}
-              activeOpacity={0.8}
-              onPress={handleSignOut}
-              disabled={signingOut}
-            >
-              {signingOut ? (
-                <ActivityIndicator size="small" color={palette.accent} />
-              ) : (
-                <>
-                  <MaterialCommunityIcons
-                    name="logout-variant"
-                    size={18}
-                    color={palette.accent}
-                  />
-                  <Text
-                    style={[
-                      styles.actionSecondaryText,
-                      { color: palette.accent },
-                    ]}
-                  >
-                    Sign out
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
         </View>
 
         <View
@@ -167,80 +265,42 @@ export default function ProfileScreen() {
           ]}
         >
           <Text style={[styles.sectionTitle, { color: palette.text }]}>
-            Account overview
+            Personal information
           </Text>
-          <View style={styles.row}>
-            <View style={styles.rowLeft}>
-              <MaterialCommunityIcons
-                name="cart-outline"
-                size={22}
-                color={palette.muted}
-              />
-              <View>
-                <Text style={[styles.rowTitle, { color: palette.text }]}>
-                  Orders
-                </Text>
-                <Text style={[styles.rowSubtitle, { color: palette.muted }]}>
-                  Track your recent orders and returns.
-                </Text>
+          {personalInfo.map((item) => (
+            <View key={item.label}>
+              <View style={styles.infoRow}>
+                <MaterialCommunityIcons
+                  name={item.icon}
+                  size={22}
+                  color={palette.muted}
+                />
+                <View style={styles.infoTextWrap}>
+                  <Text style={[styles.infoLabel, { color: palette.muted }]}>
+                    {item.label}
+                  </Text>
+                  <Text style={[styles.infoValue, { color: palette.text }]}>
+                    {item.value || "Not provided"}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.rowEditBtn,
+                    { borderColor: palette.cardBorder },
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={() => openEdit(item)}
+                >
+                  <MaterialCommunityIcons
+                    name="pencil-outline"
+                    size={18}
+                    color={palette.accent}
+                  />
+                </TouchableOpacity>
               </View>
+              <View style={styles.rowDivider} />
             </View>
-            <MaterialCommunityIcons
-              name="chevron-right"
-              size={22}
-              color={palette.muted}
-            />
-          </View>
-
-          <View style={styles.rowDivider} />
-
-          <View style={styles.row}>
-            <View style={styles.rowLeft}>
-              <MaterialCommunityIcons
-                name="map-marker-outline"
-                size={22}
-                color={palette.muted}
-              />
-              <View>
-                <Text style={[styles.rowTitle, { color: palette.text }]}>
-                  Addresses
-                </Text>
-                <Text style={[styles.rowSubtitle, { color: palette.muted }]}>
-                  Manage delivery addresses and defaults.
-                </Text>
-              </View>
-            </View>
-            <MaterialCommunityIcons
-              name="chevron-right"
-              size={22}
-              color={palette.muted}
-            />
-          </View>
-
-          <View style={styles.rowDivider} />
-
-          <View style={styles.row}>
-            <View style={styles.rowLeft}>
-              <MaterialCommunityIcons
-                name="shield-lock-outline"
-                size={22}
-                color={palette.muted}
-              />
-              <View>
-                <Text style={[styles.rowTitle, { color: palette.text }]}>
-                  Security
-                </Text>
-                <Text style={[styles.rowSubtitle, { color: palette.muted }]}>
-                  Update password and secure your account.
-                </Text>
-              </View>
-            </View>
-            <MaterialCommunityIcons
-              name="chevron-right"
-              size={22}
-              color={palette.muted}
-            />
-          </View>
+          ))}
         </View>
 
         {loading && (
@@ -252,6 +312,72 @@ export default function ProfileScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        visible={Boolean(editTarget)}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEdit}
+      >
+        <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: palette.card, borderColor: palette.cardBorder },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: palette.text }]}>
+              Update {editTarget?.label}
+            </Text>
+            <Text style={[styles.modalSubtitle, { color: palette.muted }]}>
+              {editTarget?.kind === "password"
+                ? "Enter your new password."
+                : `Change your ${editTarget?.label.toLowerCase()} here.`}
+            </Text>
+            <TextInput
+              style={[
+                styles.modalInput,
+                {
+                  color: palette.text,
+                  borderColor: palette.cardBorder,
+                  backgroundColor: isDark ? "#0F172A" : "#F8FAFC",
+                },
+              ]}
+              value={editValue}
+              onChangeText={setEditValue}
+              placeholder={`New ${editTarget?.label.toLowerCase() ?? "value"}`}
+              placeholderTextColor={palette.muted}
+              secureTextEntry={editTarget?.kind === "password"}
+              autoCapitalize="none"
+              keyboardType={editTarget?.kind === "email" ? "email-address" : "default"}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, { borderColor: palette.cardBorder }]}
+                activeOpacity={0.8}
+                onPress={closeEdit}
+                disabled={saving}
+              >
+                <Text style={[styles.modalCancelText, { color: palette.muted }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalSaveButton]}
+                activeOpacity={0.8}
+                onPress={saveEdit}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalSaveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -301,68 +427,102 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 14,
   },
-  actionsRow: {
-    flexDirection: "row",
-    marginTop: 16,
-    gap: 10,
-  },
-  actionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderRadius: 999,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    flex: 1,
-  },
-  actionPrimary: {
-    backgroundColor: "#00AEEF",
-  },
-  actionPrimaryText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  actionSecondary: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "#00AEEF",
-  },
-  actionSecondaryText: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 12,
   },
-  row: {
+  infoRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
+    gap: 12,
+    paddingVertical: 12,
   },
-  rowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  infoTextWrap: {
     flex: 1,
   },
-  rowTitle: {
+  infoLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  infoValue: {
+    marginTop: 3,
     fontSize: 15,
     fontWeight: "600",
+    lineHeight: 21,
   },
-  rowSubtitle: {
-    fontSize: 13,
-    marginTop: 2,
+  rowEditBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   rowDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: "#1F2937",
     opacity: 0.4,
     marginVertical: 4,
+  },
+  modalBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+  },
+  modalCard: {
+    width: "100%",
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 18,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  modalSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  modalInput: {
+    marginTop: 16,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
+  modalButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalSaveButton: {
+    borderColor: "#00AEEF",
+    backgroundColor: "#00AEEF",
+  },
+  modalCancelText: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  modalSaveText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
   },
   loadingRow: {
     flexDirection: "row",

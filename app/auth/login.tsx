@@ -6,7 +6,6 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,6 +18,7 @@ import {
 } from "react-native";
 
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { useToast } from "@/lib/toast";
 import {
     SafeAreaView,
     useSafeAreaInsets,
@@ -36,6 +36,7 @@ import {
 
 export default function LoginScreen() {
   const router = useRouter();
+  const toast = useToast();
   const [remember, setRemember] = useState(false);
   const [heroBlockHeight, setHeroBlockHeight] = useState(0);
   const [email, setEmail] = useState("");
@@ -46,15 +47,15 @@ export default function LoginScreen() {
 
   const signIn = useCallback(async () => {
     if (!isSupabaseConfigured) {
-      Alert.alert(
-        "Configuration",
-        "Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY or publishable key. Restart: npx expo start -c"
+      toast.warning(
+        "Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY or publishable key. Restart: npx expo start -c",
+        "Configuration"
       );
       return;
     }
     const trimmed = email.trim();
     if (!trimmed || !password) {
-      Alert.alert("Missing fields", "Please enter email and password.");
+      toast.warning("Please enter email and password.", "Missing fields");
       return;
     }
     setLoading(true);
@@ -64,11 +65,11 @@ export default function LoginScreen() {
     });
     setLoading(false);
     if (error) {
-      Alert.alert("Login failed", error.message);
+      toast.error(error.message, "Login failed");
       return;
     }
     router.replace("/(tabs)");
-  }, [email, password, router]);
+  }, [email, password, router, toast]);
 
   const onHeroLayout = useCallback((e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
