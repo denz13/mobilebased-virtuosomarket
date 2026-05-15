@@ -7,6 +7,7 @@ import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { registerCurrentUserAsStoreNotifier } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 import { loadIsCustomer } from '@/lib/user-role';
 
@@ -22,7 +23,12 @@ export default function TabLayout() {
     let cancelled = false;
     const refreshRole = async () => {
       const customer = await loadIsCustomer();
-      if (!cancelled) setIsCustomer(customer);
+      if (!cancelled) {
+        setIsCustomer(customer);
+        if (!customer) {
+          void registerCurrentUserAsStoreNotifier();
+        }
+      }
     };
     void refreshRole();
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
@@ -101,6 +107,16 @@ export default function TabLayout() {
             title: 'My Cart',
             href: isCustomer ? '/cart' : null,
             tabBarIcon: ({ color }) => <IconSymbol size={28} name="cart.fill" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="verify-orders"
+          options={{
+            title: 'Verify',
+            href: isCustomer ? null : '/verify-orders',
+            tabBarIcon: ({ color }) => (
+              <MaterialCommunityIcons name="clipboard-check-outline" size={28} color={color} />
+            ),
           }}
         />
         <Tabs.Screen

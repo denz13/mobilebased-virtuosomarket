@@ -94,8 +94,6 @@ function StoreAdminHome() {
   const colorScheme = useColorScheme();
   const { width: windowWidth } = useWindowDimensions();
   const categorySlideWidth = windowWidth - 32;
-  const cartBounce = useRef(new Animated.Value(0)).current;
-  const messageBounce = useRef(new Animated.Value(0)).current;
   const menuBounce = useRef(new Animated.Value(0)).current;
   const drawerSlide = useRef(new Animated.Value(-320)).current;
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -226,19 +224,13 @@ function StoreAdminHome() {
         ])
       );
 
-    const cartAnimation = createBounce(cartBounce, 0);
-    const messageAnimation = createBounce(messageBounce, 350);
-    const menuAnimation = createBounce(menuBounce, 700);
-    cartAnimation.start();
-    messageAnimation.start();
+    const menuAnimation = createBounce(menuBounce, 0);
     menuAnimation.start();
 
     return () => {
-      cartAnimation.stop();
-      messageAnimation.stop();
       menuAnimation.stop();
     };
-  }, [cartBounce, menuBounce, messageBounce]);
+  }, [menuBounce]);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: palette.bg }]} edges={["top"]}>
@@ -275,61 +267,27 @@ function StoreAdminHome() {
             contentFit="cover"
           />
         </View>
-        <View style={styles.searchRow}>
-          <View
-            style={[
-              styles.searchWrap,
-              {
-                backgroundColor: palette.searchBg,
-                borderWidth: 1,
-                borderColor: isDark ? "#1F2937" : "#E2E8F0",
-              },
-            ]}
-          >
-            <MaterialCommunityIcons
-              name="magnify"
-              size={22}
-              color={palette.searchPlaceholder}
-              style={styles.searchIcon}
-            />
-            <TextInput
-              placeholder="Search products, brands, deals"
-              placeholderTextColor={palette.searchPlaceholder}
-              style={[styles.searchInput, { color: palette.text }]}
-            />
-          </View>
-          <View style={styles.searchActions}>
-            <Animated.View
-              style={[
-                styles.searchActionBtn,
-                {
-                  backgroundColor: palette.searchBg,
-                  transform: [{ translateY: cartBounce }],
-                },
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="cart-outline"
-                size={22}
-                color={palette.text}
-              />
-            </Animated.View>
-            <Animated.View
-              style={[
-                styles.searchActionBtn,
-                {
-                  backgroundColor: palette.searchBg,
-                  transform: [{ translateY: messageBounce }],
-                },
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="message-outline"
-                size={22}
-                color={palette.text}
-              />
-            </Animated.View>
-          </View>
+        <View
+          style={[
+            styles.searchWrap,
+            {
+              backgroundColor: palette.searchBg,
+              borderWidth: 1,
+              borderColor: isDark ? "#1F2937" : "#E2E8F0",
+            },
+          ]}
+        >
+          <MaterialCommunityIcons
+            name="magnify"
+            size={24}
+            color={palette.searchPlaceholder}
+            style={styles.searchIcon}
+          />
+          <TextInput
+            placeholder="Search products, brands, deals"
+            placeholderTextColor={palette.searchPlaceholder}
+            style={[styles.searchInput, { color: palette.text }]}
+          />
         </View>
       </LinearGradient>
 
@@ -565,38 +523,22 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.2)",
   },
   searchWrap: {
-    flex: 1,
+    width: "100%",
     backgroundColor: "#FFFFFF",
     borderRadius: 999,
-    paddingHorizontal: 14,
+    paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
+    minHeight: 52,
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 17,
     color: "#0F172A",
-    paddingVertical: 12,
-  },
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  searchActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  searchActionBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 14,
   },
   section: {
     marginTop: 20,

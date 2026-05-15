@@ -23,6 +23,8 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { debugNotificationSetup, notifyProductOwners } from "@/lib/notifications";
+import { getCurrentUserDisplayName } from "@/lib/user-display-name";
 import { loadIsCustomer } from "@/lib/user-role";
 import { useToast } from "@/lib/toast";
 
@@ -75,6 +77,42 @@ function parseAmount(raw: string | null | undefined): number {
   if (!raw) return 0;
   const n = parseFloat(String(raw).replace(/[^\d.-]/g, ""));
   return Number.isFinite(n) ? n : 0;
+}
+
+function productNamesForCartLines(
+  cartRows: CartRow[],
+  lineIds: Iterable<number>,
+  productsById: Record<number, ProductLite>
+): string {
+  const idSet = new Set(lineIds);
+  const names = [
+    ...new Set(
+      cartRows
+        .filter((r) => idSet.has(r.id))
+        .map((r) => {
+          const pid = r.product_id ? Number(r.product_id) : NaN;
+          const name = Number.isFinite(pid) ? productsById[pid]?.product_name?.trim() : "";
+          return name || null;
+        })
+        .filter((n): n is string => Boolean(n))
+    ),
+  ];
+  if (names.length === 0) {
+    const n = idSet.size;
+    return n === 1 ? "1 item" : `${n} items`;
+  }
+  if (names.length === 1) return names[0];
+  if (names.length <= 3) return names.join(", ");
+  return `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
+
+function productNameForCartLine(
+  row: CartRow,
+  productsById: Record<number, ProductLite>
+): string {
+  const pid = row.product_id ? Number(row.product_id) : NaN;
+  const name = Number.isFinite(pid) ? productsById[pid]?.product_name?.trim() : "";
+  return name || "an item";
 }
 
 function base64ToUint8Array(base64: string): Uint8Array {
@@ -661,11 +699,28 @@ export default function MyCartScreen() {
       )
     );
 
+    const reorderProductId = reorderRow.product_id
+      ? Number(String(reorderRow.product_id).trim())
+      : NaN;
+    const customerName = await getCurrentUserDisplayName();
+    const reorderItem = productNameForCartLine(reorderRow, productsById);
+    const reorderNotifyMessage = `Order again: ${customerName} re-submitted a receipt for ${reorderItem}. Status is under verification.`;
+    const notifyRes = await notifyProductOwners(
+      Number.isFinite(reorderProductId) && reorderProductId > 0 ? [reorderProductId] : [],
+      reorderNotifyMessage
+    );
+    if (!notifyRes.ok) {
+      console.warn("[cart] Order again — seller notification failed", notifyRes);
+      void debugNotificationSetup();
+      const msg = [notifyRes.error, notifyRes.hint].filter(Boolean).join("\n\n");
+      toast.warning(msg || "Could not notify product seller.", "Notification");
+    }
+
     setReorderSubmitting(false);
     setReorderRow(null);
     setReorderReceiptAsset(null);
     toast.success("Order re-submitted. Receipt is under verification.", "Done");
-  }, [reorderRow, reorderReceiptAsset, toast, userId]);
+  }, [reorderRow, reorderReceiptAsset, productsById, toast, userId]);
 
   const openCheckout = useCallback(() => {
     if (selectedIds.size === 0) {
@@ -791,6 +846,24 @@ export default function MyCartScreen() {
       },
     });
 
+    const productIds = rows
+      .filter((r) => selectedIds.has(r.id))
+      .map((r) => (r.product_id != null ? Number(r.product_id) : NaN))
+      .filter((n) => Number.isFinite(n));
+
+    const customerName = await getCurrentUserDisplayName();
+    const orderSummary = productNamesForCartLines(rows, ids, productsById);
+    const notifyRes = await notifyProductOwners(
+      productIds,
+      `Buy now: ${customerName} submitted an order for ${orderSummary}. Status is under verification.`
+    );
+    if (!notifyRes.ok) {
+      console.warn("[cart] Buy now — seller notification failed", notifyRes);
+      void debugNotificationSetup();
+      const msg = [notifyRes.error, notifyRes.hint].filter(Boolean).join("\n\n");
+      toast.warning(msg || "Could not notify product seller.", "Notification");
+    }
+
     setSubmittingOrder(false);
     setCheckoutOpen(false);
     setReceiptAsset(null);
@@ -799,7 +872,9 @@ export default function MyCartScreen() {
     toast.success("Order submitted. Receipt is under verification.", "Thank you");
   }, [
     loadCart,
+    productsById,
     receiptAsset,
+    rows,
     selectedIds,
     shipAddress,
     shipPhone,

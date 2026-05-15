@@ -34,11 +34,25 @@ type Product = {
   product_stock: string | null;
   product_image: string | null;
   status: string | null;
+  /** Store/admin who added this product — used for order notifications. */
+  users_id: string | null;
 };
 
 type CategoryOption = {
   id: number;
   category_name: string | null;
+};
+
+type ProductSavePayload = {
+  categories_id: number | null;
+  product_name: string;
+  product_description: string | null;
+  product_price: string | null;
+  product_stock: string | null;
+  product_image: string | null;
+  status: string;
+  updated_at: string;
+  users_id?: string;
 };
 
 export default function ProductsScreen() {
@@ -85,7 +99,7 @@ export default function ProductsScreen() {
     const { data, error } = await supabase
       .from("product")
       .select(
-        "id, categories_id, product_name, product_description, product_price, product_stock, product_image, status",
+        "id, categories_id, product_name, product_description, product_price, product_stock, product_image, status, users_id",
       )
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -254,7 +268,11 @@ export default function ProductsScreen() {
     }
 
     setSaving(true);
-    const payload = {
+
+    const { data: authData } = await supabase.auth.getUser();
+    const sellerId = authData.user?.id ?? null;
+
+    const payload: ProductSavePayload = {
       categories_id: selectedCategory?.id ?? null,
       product_name: trimmedName,
       product_description: productDescription.trim() || null,
@@ -263,6 +281,7 @@ export default function ProductsScreen() {
       product_image: productImage.trim() || null,
       status: "active",
       updated_at: new Date().toISOString(),
+      ...(!editingProduct && sellerId ? { users_id: sellerId } : {}),
     };
 
     const { data, error } = editingProduct
@@ -271,7 +290,7 @@ export default function ProductsScreen() {
           .from("product")
           .insert(payload)
           .select(
-            "id, categories_id, product_name, product_description, product_price, product_stock, product_image, status",
+            "id, categories_id, product_name, product_description, product_price, product_stock, product_image, status, users_id",
           )
           .single();
 
@@ -297,6 +316,7 @@ export default function ProductsScreen() {
                 product_stock: payload.product_stock,
                 product_image: payload.product_image,
                 status: payload.status,
+                users_id: editingProduct.users_id,
               }
             : item
         )
