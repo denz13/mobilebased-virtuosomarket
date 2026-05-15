@@ -3,7 +3,9 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
+  FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,11 +13,14 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import SidebarNavigation from "@/components/sidebar-navigation";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+
+import CustomerDashboard from "./dashboard";
 
 type Category = {
   id: number;
@@ -36,8 +41,59 @@ const orders = [
   { id: "#VM-1091", status: "Delivered", amount: "PHP 799" },
 ] as const;
 
+type HomeRole = "pending" | "customer" | "store";
+
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const [homeRole, setHomeRole] = useState<HomeRole>("pending");
+
+  useEffect(() => {
+    let mounted = true;
+    const resolveRole = async () => {
+      if (!isSupabaseConfigured) {
+        if (mounted) setHomeRole("store");
+        return;
+      }
+      const { data } = await supabase.auth.getUser();
+      if (!mounted) return;
+      const raw = data.user?.user_metadata?.role;
+      const isCustomer =
+        typeof raw === "string" && raw.toLowerCase() === "customer";
+      setHomeRole(isCustomer ? "customer" : "store");
+    };
+    resolveRole();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (homeRole === "pending") {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: isDark ? "#0B1220" : "#F8FAFC",
+        }}
+      >
+        <ActivityIndicator size="large" color="#00AEEF" />
+      </View>
+    );
+  }
+
+  if (homeRole === "customer") {
+    return <CustomerDashboard />;
+  }
+
+  return <StoreAdminHome />;
+}
+
+function StoreAdminHome() {
+  const colorScheme = useColorScheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const categorySlideWidth = windowWidth - 32;
   const cartBounce = useRef(new Animated.Value(0)).current;
   const messageBounce = useRef(new Animated.Value(0)).current;
   const menuBounce = useRef(new Animated.Value(0)).current;
@@ -47,7 +103,24 @@ export default function HomeScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [firstName, setFirstName] = useState("User");
   const [refreshing, setRefreshing] = useState(false);
+  const [categoryCarouselIndex, setCategoryCarouselIndex] = useState(0);
   const isDark = colorScheme === "dark";
+
+  const onCategoryViewableItemsChanged = useCallback(
+    ({
+      viewableItems,
+    }: {
+      viewableItems: { index: number | null }[];
+    }) => {
+      const idx = viewableItems[0]?.index;
+      if (typeof idx === "number") setCategoryCarouselIndex(idx);
+    },
+    []
+  );
+
+  const categoryViewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 55,
+  }).current;
   const palette = {
     bg: isDark ? "#0B1220" : "#F8FAFC",
     card: isDark ? "#111827" : "#FFFFFF",
@@ -125,6 +198,14 @@ export default function HomeScreen() {
   useEffect(() => {
     loadCurrentUser();
   }, [loadCurrentUser]);
+
+  useEffect(() => {
+    if (categories.length === 0) {
+      setCategoryCarouselIndex(0);
+      return;
+    }
+    setCategoryCarouselIndex((i) => Math.min(i, categories.length - 1));
+  }, [categories.length]);
 
   useEffect(() => {
     const createBounce = (value: Animated.Value, delay: number) =>
@@ -253,6 +334,7 @@ export default function HomeScreen() {
       </LinearGradient>
 
       <ScrollView
+        nestedScrollEnabled
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -295,32 +377,76 @@ export default function HomeScreen() {
               </Text>
             </View>
           ) : (
-            <View style={styles.categoryRow}>
-            {categories.map((category) => (
-              <View
-                key={category.id}
-                style={[styles.categoryCard, { backgroundColor: palette.card, borderColor: palette.border }]}
-              >
-                <View style={[styles.categoryImageShell, { backgroundColor: palette.thumb }]}>
-                  {category.image ? (
-                    <Image
-                      source={{ uri: category.image }}
-                      style={styles.categoryImage}
-                      contentFit="cover"
-                    />
-                  ) : (
-                    <MaterialCommunityIcons
-                      name="shape-outline"
-                      size={22}
-                      color="#0077C8"
-                    />
-                  )}
-                </View>
-                <Text style={[styles.categoryText, { color: palette.text }]}>
-                  {category.category_name || "Untitled"}
-                </Text>
+            <View>
+              <FlatList
+                data={categories}
+                horizontal
+                pagingEnabled
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+                keyExtractor={(item) => String(item.id)}
+                onViewableItemsChanged={onCategoryViewableItemsChanged}
+                viewabilityConfig={categoryViewabilityConfig}
+                getItemLayout={(_, index) => ({
+                  length: categorySlideWidth,
+                  offset: categorySlideWidth * index,
+                  index,
+                })}
+                renderItem={({ item: category }) => (
+                  <View style={{ width: categorySlideWidth }}>
+                    <View
+                      style={[
+                        styles.categoryCarouselCard,
+                        {
+                          backgroundColor: palette.card,
+                          borderColor: palette.border,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.categoryCarouselImageWrap,
+                          { backgroundColor: palette.thumb },
+                        ]}
+                      >
+                        {category.image ? (
+                          <Image
+                            source={{ uri: category.image }}
+                            style={styles.categoryCarouselImage}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <MaterialCommunityIcons
+                            name="shape-outline"
+                            size={48}
+                            color="#0077C8"
+                          />
+                        )}
+                      </View>
+                      <Text
+                        style={[styles.categoryCarouselTitle, { color: palette.text }]}
+                        numberOfLines={2}
+                      >
+                        {category.category_name || "Untitled"}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              />
+              <View style={styles.carouselDots}>
+                {categories.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.carouselDot,
+                      {
+                        backgroundColor:
+                          i === categoryCarouselIndex ? "#00AEEF" : palette.border,
+                      },
+                    ]}
+                  />
+                ))}
               </View>
-            ))}
             </View>
           )}
         </View>
@@ -504,37 +630,41 @@ const styles = StyleSheet.create({
     color: "#64748B",
     marginTop: 4,
   },
-  categoryRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  categoryCard: {
-    width: "48%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
+  categoryCarouselCard: {
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    gap: 8,
+    overflow: "hidden",
+    marginRight: 0,
   },
-  categoryImageShell: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  categoryCarouselImageWrap: {
+    height: 140,
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
-  categoryImage: {
+  categoryCarouselImage: {
     width: "100%",
     height: "100%",
   },
-  categoryText: {
-    color: "#0F172A",
-    fontWeight: "600",
+  categoryCarouselTitle: {
+    fontSize: 16,
+    fontWeight: "700",
     textAlign: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  carouselDots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+  },
+  carouselDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   emptyCard: {
     borderWidth: 1,

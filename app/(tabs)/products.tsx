@@ -2,7 +2,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { useCallback, useEffect, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,7 +20,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import CustomerProductCard from "@/components/customer-product-card";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { loadIsCustomer } from "@/lib/user-role";
 import { useToast } from "@/lib/toast";
 
 type Product = {
@@ -39,9 +42,12 @@ type CategoryOption = {
 };
 
 export default function ProductsScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ categoryId?: string | string[] }>();
   const colorScheme = useColorScheme();
   const toast = useToast();
   const isDark = colorScheme === "dark";
+  const [isCustomer, setIsCustomer] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -57,6 +63,7 @@ export default function ProductsScreen() {
   const [productStock, setProductStock] = useState("");
   const [productImage, setProductImage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [cartUserId, setCartUserId] = useState<string | null>(null);
 
   const palette = {
     bg: isDark ? "#020617" : "#F8FAFC",
@@ -115,6 +122,38 @@ export default function ProductsScreen() {
     loadCategories();
   }, [loadCategories, loadProducts]);
 
+  useEffect(() => {
+    let mounted = true;
+    loadIsCustomer().then((value) => {
+      if (mounted) setIsCustomer(value);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isCustomer || !isSupabaseConfigured) {
+      setCartUserId(null);
+      return;
+    }
+    let mounted = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (mounted) setCartUserId(data.user?.id ?? null);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [isCustomer]);
+
+  const categoryFilterId = useMemo(() => {
+    const raw = params.categoryId;
+    const idStr = Array.isArray(raw) ? raw[0] : raw;
+    if (idStr == null || idStr === "") return null;
+    const n = Number(idStr);
+    return Number.isFinite(n) ? n : null;
+  }, [params.categoryId]);
+
   const resetForm = () => {
     setEditingProduct(null);
     setSelectedCategory(null);
@@ -133,6 +172,12 @@ export default function ProductsScreen() {
   };
 
   const filteredProducts = products.filter((product) => {
+    if (
+      categoryFilterId != null &&
+      product.categories_id !== categoryFilterId
+    ) {
+      return false;
+    }
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
     const categoryName = getCategoryName(product.categories_id).toLowerCase();
@@ -325,19 +370,23 @@ export default function ProductsScreen() {
               Products
             </Text>
             <Text style={[styles.subtitle, { color: palette.muted }]}>
-              Manage product inventory.
+              {isCustomer
+                ? "Browse products. Open categories to filter by type."
+                : "Manage product inventory."}
             </Text>
           </View>
 
-          <Pressable
-            style={[styles.addButton, { backgroundColor: palette.accent }]}
-            onPress={openAddModal}
-            accessibilityRole="button"
-            accessibilityLabel="Add product"
-          >
-            <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-            <Text style={styles.addButtonText}>Add</Text>
-          </Pressable>
+          {!isCustomer ? (
+            <Pressable
+              style={[styles.addButton, { backgroundColor: palette.accent }]}
+              onPress={openAddModal}
+              accessibilityRole="button"
+              accessibilityLabel="Add product"
+            >
+              <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
+              <Text style={styles.addButtonText}>Add</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {loading ? (
@@ -381,6 +430,39 @@ export default function ProductsScreen() {
             </Pressable>
           ) : null}
         </View>
+
+        {categoryFilterId != null ? (
+          <View
+            style={[
+              styles.filterBanner,
+              {
+                backgroundColor: palette.iconBg,
+                borderColor: palette.border,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name="filter-variant"
+              size={20}
+              color={palette.accent}
+            />
+            <Text
+              style={[styles.filterBannerText, { color: palette.text }]}
+              numberOfLines={1}
+            >
+              {getCategoryName(categoryFilterId)}
+            </Text>
+            <Pressable
+              onPress={() => router.replace("/(tabs)/products")}
+              style={styles.filterClearBtn}
+              hitSlop={8}
+            >
+              <Text style={[styles.filterClearText, { color: palette.accent }]}>
+                Clear
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
 
       <ScrollView
@@ -403,8 +485,9 @@ export default function ProductsScreen() {
               No products yet
             </Text>
             <Text style={[styles.emptyText, { color: palette.muted }]}>
-              Products will show here from the public.product table. Tap Add to
-              create your first product.
+              {isCustomer
+                ? "No products available yet."
+                : "Products will show here from the public.product table. Tap Add to create your first product."}
             </Text>
           </View>
         ) : filteredProducts.length === 0 ? (
@@ -423,12 +506,23 @@ export default function ProductsScreen() {
               No matching products
             </Text>
             <Text style={[styles.emptyText, { color: palette.muted }]}>
-              Try another keyword or clear the search.
+              {categoryFilterId != null
+                ? "No products in this category. Try clearing the filter or search."
+                : "Try another keyword or clear the search."}
             </Text>
           </View>
         ) : (
           <View style={styles.list}>
-            {filteredProducts.map((product) => (
+            {filteredProducts.map((product) =>
+              isCustomer ? (
+                <CustomerProductCard
+                  key={product.id}
+                  product={product}
+                  categoryLabel={getCategoryName(product.categories_id)}
+                  palette={palette}
+                  userId={cartUserId}
+                />
+              ) : (
               <View
                 key={product.id}
                 style={[
@@ -518,61 +612,64 @@ export default function ProductsScreen() {
                   </View>
                 </View>
 
-                <View
-                  style={[
-                    styles.cardActions,
-                    { borderTopColor: palette.border },
-                  ]}
-                >
-                  <Pressable style={[styles.cardAction, styles.previewAction]}>
-                    <MaterialCommunityIcons
-                      name="eye-outline"
-                      size={17}
-                      color={palette.accent}
-                    />
-                    <Text
-                      style={[styles.cardActionText, { color: palette.accent }]}
+                {!isCustomer ? (
+                  <View
+                    style={[
+                      styles.cardActions,
+                      { borderTopColor: palette.border },
+                    ]}
+                  >
+                    <Pressable style={[styles.cardAction, styles.previewAction]}>
+                      <MaterialCommunityIcons
+                        name="eye-outline"
+                        size={17}
+                        color={palette.accent}
+                      />
+                      <Text
+                        style={[styles.cardActionText, { color: palette.accent }]}
+                      >
+                        Preview
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.cardAction}
+                      onPress={() => openEditModal(product)}
                     >
-                      Preview
-                    </Text>
-                  </Pressable>
+                      <MaterialCommunityIcons
+                        name="pencil-outline"
+                        size={17}
+                        color={palette.text}
+                      />
+                      <Text style={[styles.cardActionText, { color: palette.text }]}>
+                        Edit
+                      </Text>
+                    </Pressable>
 
-                  <Pressable
-                    style={styles.cardAction}
-                    onPress={() => openEditModal(product)}
-                  >
-                    <MaterialCommunityIcons
-                      name="pencil-outline"
-                      size={17}
-                      color={palette.text}
-                    />
-                    <Text style={[styles.cardActionText, { color: palette.text }]}>
-                      Edit
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={styles.cardAction}
-                    onPress={() => deleteProduct(product)}
-                  >
-                    <MaterialCommunityIcons
-                      name="trash-can-outline"
-                      size={17}
-                      color="#EF4444"
-                    />
-                    <Text style={[styles.cardActionText, { color: "#EF4444" }]}>
-                      Delete
-                    </Text>
-                  </Pressable>
-                </View>
+                    <Pressable
+                      style={styles.cardAction}
+                      onPress={() => deleteProduct(product)}
+                    >
+                      <MaterialCommunityIcons
+                        name="trash-can-outline"
+                        size={17}
+                        color="#EF4444"
+                      />
+                      <Text style={[styles.cardActionText, { color: "#EF4444" }]}>
+                        Delete
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
-            ))}
+              )
+            )}
           </View>
         )}
       </ScrollView>
 
       <Modal
-        visible={modalVisible}
+        visible={modalVisible && !isCustomer}
         transparent
         animationType="fade"
         onRequestClose={closeAddModal}
@@ -880,6 +977,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  filterBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  filterBannerText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  filterClearBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  filterClearText: {
+    fontSize: 14,
+    fontWeight: "800",
   },
   searchInput: {
     flex: 1,

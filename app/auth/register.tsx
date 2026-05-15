@@ -110,6 +110,7 @@ export default function RegisterScreen() {
           suffix: suffix.trim() || undefined,
           date_of_birth: dob ? formatLocalYmd(dob) : undefined,
           address: address.trim() || undefined,
+          role: "customer",
         },
       },
     });

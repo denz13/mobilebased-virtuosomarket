@@ -54,6 +54,15 @@ function isAuthEmailRateLimitError(error: AuthError): boolean {
   );
 }
 
+function isRecoveryEmailSendFailure(error: AuthError): boolean {
+  const msg = (error.message ?? "").toLowerCase();
+  return (
+    msg.includes("error sending recovery email") ||
+    msg.includes("sending recovery email") ||
+    msg.includes("error sending email")
+  );
+}
+
 type Step = "email" | "otp" | "newPassword";
 
 type Banner = {
@@ -109,8 +118,9 @@ export default function ForgotPasswordScreen() {
       return;
     }
     setBusy(true);
+    const redirectTo = Linking.createURL("/");
     const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
-      redirectTo: Linking.createURL("/"),
+      redirectTo,
     });
     setBusy(false);
     if (error) {
@@ -123,6 +133,17 @@ export default function ForgotPasswordScreen() {
           link: {
             label: "Gabay: Custom SMTP sa Supabase (docs)",
             url: "https://supabase.com/docs/guides/auth/auth-smtp",
+          },
+        });
+        return;
+      }
+      if (isRecoveryEmailSendFailure(error)) {
+        setBanner({
+          tone: "error",
+          message: `Supabase could not send the recovery email (server-side). Common fixes:\n\n(1) Authentication → URL Configuration → Redirect URLs: add this exact URL:\n${redirectTo}\n\n(2) Authentication → Emails: set up Custom SMTP (built-in mail is limited and often fails at scale).\n\n(3) Check spam, wait if you hit rate limits, and confirm the user email exists in Auth → Users.\n\nTechnical detail: ${error.message}`,
+          link: {
+            label: "Redirect URLs & Site URL (docs)",
+            url: "https://supabase.com/docs/guides/auth/redirect-urls",
           },
         });
         return;

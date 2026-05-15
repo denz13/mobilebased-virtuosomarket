@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 
-import { supabase } from "@/lib/supabase";
+import { isInvalidRefreshTokenError, supabase } from "@/lib/supabase";
 
 export default function Index() {
   const router = useRouter();
@@ -11,8 +11,14 @@ export default function Index() {
     let mounted = true;
 
     const routeBySession = async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
       if (!mounted) return;
+
+      if (error && isInvalidRefreshTokenError(error)) {
+        await supabase.auth.signOut({ scope: "local" });
+        router.replace("/auth/login");
+        return;
+      }
 
       if (data.session) {
         router.replace("/(tabs)");

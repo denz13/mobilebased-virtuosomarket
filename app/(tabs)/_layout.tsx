@@ -8,6 +8,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
+import { loadIsCustomer } from '@/lib/user-role';
 
 export default function TabLayout() {
   const router = useRouter();
@@ -15,6 +16,23 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
+  const [isCustomer, setIsCustomer] = React.useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshRole = async () => {
+      const customer = await loadIsCustomer();
+      if (!cancelled) setIsCustomer(customer);
+    };
+    void refreshRole();
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      void refreshRole();
+    });
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -78,10 +96,11 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="profile"
+          name="cart"
           options={{
-            title: 'Profile',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.crop.circle" color={color} />,
+            title: 'My Cart',
+            href: isCustomer ? '/cart' : null,
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="cart.fill" color={color} />,
           }}
         />
         <Tabs.Screen
@@ -92,6 +111,13 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.crop.circle" color={color} />,
+          }}
+        />
+        <Tabs.Screen
           name="categories"
           options={{
             href: null,
@@ -99,6 +125,12 @@ export default function TabLayout() {
         />
         <Tabs.Screen
           name="products"
+          options={{
+            href: null,
+          }}
+        />
+        <Tabs.Screen
+          name="dashboard"
           options={{
             href: null,
           }}

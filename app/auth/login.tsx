@@ -274,29 +274,6 @@ export default function LoginScreen() {
                 <Text style={styles.primaryBtnText}>Login</Text>
               )}
             </Pressable>
-
-            <Text style={styles.dividerText}>Or Continue With</Text>
-
-            <View style={styles.socialRow}>
-              <Pressable
-                style={[styles.socialBtn, styles.appleBtn]}
-                onPress={() => {}}
-              >
-                <MaterialCommunityIcons name="apple" size={26} color={WHITE} />
-                <Text style={styles.appleBtnText}>Apple</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.socialBtn, styles.googleBtn]}
-                onPress={() => {}}
-              >
-                <MaterialCommunityIcons
-                  name="google"
-                  size={26}
-                  color="#EA4335"
-                />
-                <Text style={styles.googleBtnText}>Google</Text>
-              </Pressable>
-            </View>
           </ScrollView>
         </View>
       </KeyboardAvoidingView>

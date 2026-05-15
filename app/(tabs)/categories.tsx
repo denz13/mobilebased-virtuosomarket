@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -20,6 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { loadIsCustomer } from "@/lib/user-role";
 import { useToast } from "@/lib/toast";
 
 type Category = {
@@ -31,9 +33,11 @@ type Category = {
 };
 
 export default function CategoriesScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const toast = useToast();
   const isDark = colorScheme === "dark";
+  const [isCustomer, setIsCustomer] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -80,6 +84,16 @@ export default function CategoriesScreen() {
   useEffect(() => {
     loadCategories();
   }, [loadCategories]);
+
+  useEffect(() => {
+    let mounted = true;
+    loadIsCustomer().then((value) => {
+      if (mounted) setIsCustomer(value);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const resetForm = () => {
     setEditingCategory(null);
@@ -268,19 +282,23 @@ export default function CategoriesScreen() {
               Categories
             </Text>
             <Text style={[styles.subtitle, { color: palette.muted }]}>
-              Manage product categories.
+              {isCustomer
+                ? "Tap a category to see products in that category."
+                : "Manage product categories."}
             </Text>
           </View>
 
-          <Pressable
-            style={[styles.addButton, { backgroundColor: palette.accent }]}
-            onPress={openAddModal}
-            accessibilityRole="button"
-            accessibilityLabel="Add category"
-          >
-            <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-            <Text style={styles.addButtonText}>Add</Text>
-          </Pressable>
+          {!isCustomer ? (
+            <Pressable
+              style={[styles.addButton, { backgroundColor: palette.accent }]}
+              onPress={openAddModal}
+              accessibilityRole="button"
+              accessibilityLabel="Add category"
+            >
+              <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
+              <Text style={styles.addButtonText}>Add</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {loading ? (
@@ -346,8 +364,9 @@ export default function CategoriesScreen() {
               No categories yet
             </Text>
             <Text style={[styles.emptyText, { color: palette.muted }]}>
-              Data will show here only from the public.categories table. Tap Add
-              to create your first category.
+              {isCustomer
+                ? "No categories to browse yet. Check back later."
+                : "Data will show here only from the public.categories table. Tap Add to create your first category."}
             </Text>
           </View>
         ) : filteredCategories.length === 0 ? (
@@ -372,8 +391,20 @@ export default function CategoriesScreen() {
         ) : (
           <View style={styles.list}>
             {filteredCategories.map((category) => (
-              <View
+              <Pressable
                 key={category.id}
+                disabled={!isCustomer}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(tabs)/products",
+                    params: { categoryId: String(category.id) },
+                  })
+                }
+                style={({ pressed }) =>
+                  isCustomer && pressed ? { opacity: 0.94 } : undefined
+                }
+              >
+              <View
                 style={[
                   styles.card,
                   {
@@ -429,6 +460,7 @@ export default function CategoriesScreen() {
                 </View>
 
                 <View style={styles.categoryDetails}>
+                  {!isCustomer ? (
                   <View style={styles.detailRow}>
                     <MaterialCommunityIcons
                       name="identifier"
@@ -439,6 +471,7 @@ export default function CategoriesScreen() {
                       Category ID: {category.id}
                     </Text>
                   </View>
+                  ) : null}
                   <View style={styles.detailRow}>
                     <MaterialCommunityIcons
                       name="checkbox-marked-outline"
@@ -451,6 +484,7 @@ export default function CategoriesScreen() {
                   </View>
                 </View>
 
+                {!isCustomer ? (
                 <View
                   style={[
                     styles.cardActions,
@@ -498,14 +532,16 @@ export default function CategoriesScreen() {
                     </Text>
                   </Pressable>
                 </View>
+                ) : null}
               </View>
+              </Pressable>
             ))}
           </View>
         )}
       </ScrollView>
 
       <Modal
-        visible={modalVisible}
+        visible={modalVisible && !isCustomer}
         transparent
         animationType="fade"
         onRequestClose={closeAddModal}

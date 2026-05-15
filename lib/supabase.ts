@@ -30,3 +30,35 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
     detectSessionInUrl: false,
   },
 });
+
+/** True when GoTrue rejects the stored refresh token (rotated JWT secret, revoked session, stale install). */
+export function isInvalidRefreshTokenError(error: unknown): boolean {
+  if (error == null || typeof error !== "object") return false;
+  const message =
+    "message" in error && typeof (error as { message: unknown }).message === "string"
+      ? (error as { message: string }).message.toLowerCase()
+      : "";
+  if (!message) return false;
+  return (
+    message.includes("refresh token") &&
+    (message.includes("invalid") || message.includes("not found"))
+  );
+}
+
+/**
+ * Clears local auth only (no server call). Run on startup so a bad refresh token
+ * does not spam errors — user signs in again.
+ */
+export async function clearLocalSessionIfRefreshTokenInvalid(): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase.auth.getSession();
+    if (isInvalidRefreshTokenError(error)) {
+      await supabase.auth.signOut({ scope: "local" });
+    }
+  } catch (e) {
+    if (isInvalidRefreshTokenError(e)) {
+      await supabase.auth.signOut({ scope: "local" });
+    }
+  }
+}

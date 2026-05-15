@@ -15,7 +15,6 @@ export const WHITE = "#FFFFFF";
 export const INPUT_BG = "#EFF6FB";
 export const MUTED = "#9CA3AF";
 export const TEXT_DARK = "#111827";
-export const APPLE_BG = "#1A1A2E";
 
 export const styles = StyleSheet.create({
   root: {
@@ -186,40 +185,5 @@ export const styles = StyleSheet.create({
     color: WHITE,
     fontSize: 19,
     fontWeight: "700",
-  },
-  dividerText: {
-    textAlign: "center",
-    color: MUTED,
-    fontSize: 15,
-    marginBottom: 18,
-  },
-  socialRow: {
-    flexDirection: "row",
-    gap: 14,
-  },
-  socialBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingVertical: 17,
-    borderRadius: 999,
-  },
-  appleBtn: {
-    backgroundColor: APPLE_BG,
-  },
-  appleBtnText: {
-    color: WHITE,
-    fontWeight: "600",
-    fontSize: 17,
-  },
-  googleBtn: {
-    backgroundColor: INPUT_BG,
-  },
-  googleBtnText: {
-    color: TEXT_DARK,
-    fontWeight: "600",
-    fontSize: 17,
   },
 });
