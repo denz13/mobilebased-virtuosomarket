@@ -1,7 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
 export type StoreVerifyOrderRow = {
-  cart_id: number;
+  cart_id: number | string;
   payment_id: number;
   customer_users_id: string;
   customer_name: string | null;
@@ -76,11 +76,15 @@ export function isRowPendingVerification(row: StoreVerifyOrderRow): boolean {
   );
 }
 
-function parseCartIdsFromPayment(itemsToCart: string | null): number[] {
+function parseCartIdsFromPayment(itemsToCart: string | null): string[] {
   return String(itemsToCart ?? "")
     .split(",")
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isFinite(n) && n > 0);
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function cartIdKey(id: number | string): string {
+  return String(id).trim();
 }
 
 async function loadProductMap(productIds: number[]): Promise<Map<number, ProductLite>> {
@@ -131,7 +135,7 @@ async function fetchFromPaymentsTable(): Promise<{
     return { rows: [], error: null };
   }
 
-  const allCartIds = new Set<number>();
+  const allCartIds = new Set<string>();
   for (const pay of paymentList) {
     for (const id of parseCartIdsFromPayment(pay.items_to_cart)) {
       allCartIds.add(id);
@@ -142,11 +146,12 @@ async function fetchFromPaymentsTable(): Promise<{
     return { rows: [], error: null };
   }
 
+  const cartIdList = [...allCartIds];
   const { data: cartRows, error: cartErr } = await supabase
     .from("items_to_cart")
     .select("id, users_id, product_id, qty, total_amount, updated_at, status")
     .is("deleted_at", null)
-    .in("id", [...allCartIds]);
+    .in("id", cartIdList);
 
   if (cartErr) {
     return { rows: [], error: `${cartErr.message}\n\n${SETUP_HINT}` };
@@ -162,7 +167,7 @@ async function fetchFromPaymentsTable(): Promise<{
   const cartById = new Map(
     (cartRows ?? []).map((raw) => {
       const c = raw as {
-        id: number;
+        id: number | string;
         users_id: string;
         product_id: string;
         qty: string | null;
@@ -170,7 +175,7 @@ async function fetchFromPaymentsTable(): Promise<{
         updated_at: string | null;
         status: string | null;
       };
-      return [c.id, c] as const;
+      return [cartIdKey(c.id), c] as const;
     })
   );
 
@@ -190,9 +195,10 @@ async function fetchFromPaymentsTable(): Promise<{
 
       const pid = Number(c.product_id);
       const prod = Number.isFinite(pid) ? productMap.get(pid) : undefined;
+      const cartIdNum = Number(cartId);
 
       rows.push({
-        cart_id: c.id,
+        cart_id: Number.isFinite(cartIdNum) ? cartIdNum : c.id,
         payment_id: pay.id,
         customer_users_id: c.users_id,
         customer_name: null,
@@ -246,34 +252,62 @@ export async function fetchOrdersForStoreVerification(): Promise<{
   }
 
   const rpc = await fetchViaRpc();
-  if (!rpc.error && rpc.rows.length > 0) {
-    return { rows: rpc.rows, error: null, emptyHint: null, usedRpc: true };
+  const rpcMissing =
+    !!rpc.error &&
+    (rpc.error.includes("Could not find the function") ||
+      rpc.error.includes("schema cache") ||
+      rpc.error.includes("PGRST202"));
+
+  if (!rpc.error) {
+    const normalized = rpc.rows.map((row) => ({
+      ...row,
+      cart_id: Number.isFinite(Number(row.cart_id)) ? Number(row.cart_id) : row.cart_id,
+      payment_id: Number(row.payment_id),
+      product_id: Number(row.product_id) || 0,
+    }));
+    return {
+      rows: normalized,
+      error: null,
+      emptyHint:
+        normalized.length === 0 ? "Walang payment na may items_to_cart sa database." : null,
+      usedRpc: true,
+    };
+  }
+
+  if (rpcMissing) {
+    const fromPayments = await fetchFromPaymentsTable();
+    if (fromPayments.rows.length > 0) {
+      return { rows: fromPayments.rows, error: null, emptyHint: null, usedRpc: false };
+    }
+    return {
+      rows: [],
+      error: `${SETUP_HINT}\n\nHindi pa naka-install ang list_orders_for_store_verification().`,
+      emptyHint: null,
+      usedRpc: false,
+    };
   }
 
   const fromPayments = await fetchFromPaymentsTable();
+  if (fromPayments.rows.length > 0) {
+    return { rows: fromPayments.rows, error: fromPayments.error, emptyHint: null, usedRpc: false };
+  }
   if (fromPayments.error) {
     return { rows: [], error: fromPayments.error, emptyHint: null, usedRpc: false };
   }
-  if (fromPayments.rows.length > 0) {
-    return { rows: fromPayments.rows, error: null, emptyHint: null, usedRpc: false };
-  }
-
-  const rpcMissing =
-    rpc.error?.includes("Could not find the function") ||
-    rpc.error?.includes("schema cache");
 
   return {
     rows: [],
-    error: rpc.error && !rpcMissing ? rpc.error : null,
-    emptyHint: rpcMissing ? SETUP_HINT : "Walang row sa payments / items_to_cart.",
+    error: rpc.error,
+    emptyHint: "Walang row sa payments / items_to_cart.",
     usedRpc: false,
   };
 }
 
 async function updatePaymentStatusForCart(
-  cartId: number,
+  cartId: number | string,
   status: "approved" | "declined"
 ): Promise<void> {
+  const key = cartIdKey(cartId);
   const { data: payments } = await supabase
     .from(PAYMENTS_TABLE)
     .select("id, items_to_cart")
@@ -281,7 +315,7 @@ async function updatePaymentStatusForCart(
 
   const ids = (payments ?? [])
     .filter((p) =>
-      parseCartIdsFromPayment((p as PaymentRow).items_to_cart).includes(cartId)
+      parseCartIdsFromPayment((p as PaymentRow).items_to_cart).includes(key)
     )
     .map((p) => (p as PaymentRow).id);
 
@@ -292,15 +326,16 @@ async function updatePaymentStatusForCart(
 }
 
 export async function verifyCartOrder(
-  cartId: number,
+  cartId: number | string,
   status: "approved" | "declined"
 ): Promise<{ ok: boolean; error: string | null }> {
   if (!isSupabaseConfigured) {
     return { ok: false, error: "Supabase is not configured." };
   }
 
+  const cartIdArg = cartIdKey(cartId);
   const { error: rpcErr } = await supabase.rpc(RPC_VERIFY, {
-    p_cart_id: cartId,
+    p_cart_id: cartIdArg,
     p_status: status,
   });
 
@@ -310,12 +345,12 @@ export async function verifyCartOrder(
   const { error: cartErr } = await supabase
     .from("items_to_cart")
     .update({ status, updated_at: now })
-    .eq("id", cartId);
+    .eq("id", cartIdArg);
 
   if (cartErr) {
     return { ok: false, error: cartErr.message ?? SETUP_HINT };
   }
 
-  await updatePaymentStatusForCart(cartId, status);
+  await updatePaymentStatusForCart(cartIdArg, status);
   return { ok: true, error: null };
 }

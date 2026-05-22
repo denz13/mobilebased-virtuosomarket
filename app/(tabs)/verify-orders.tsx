@@ -434,7 +434,7 @@ export default function VerifyOrdersScreen() {
             <View style={[styles.emptyCard, { borderColor: palette.border, backgroundColor: palette.card }]}>
               <MaterialCommunityIcons name="clipboard-check-outline" size={48} color={palette.muted} />
               <Text style={[styles.emptyTitle, { color: palette.text }]}>
-                {rows.length > 0 ? "No orders for this filter" : "No payments for your products"}
+                {rows.length > 0 ? "No orders for this filter" : "No customer orders yet"}
               </Text>
               <Text style={[styles.emptySub, { color: palette.muted }]}>
                 {rows.length > 0

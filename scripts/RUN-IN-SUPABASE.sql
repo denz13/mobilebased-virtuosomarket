@@ -126,8 +126,11 @@ $fn$;
 grant execute on function public.notify_product_owners(bigint[], text) to authenticated;
 
 -- -----------------------------------------------------------------------------
--- STEP 3 — Reload API schema + test (run after Step 1–2 succeed)
+-- STEP 3 — Verify tab (required for store Customer orders screen)
+-- Copy & run the ENTIRE file: scripts/store-verify-orders-rls.sql
+-- Then reload schema below.
 -- -----------------------------------------------------------------------------
+
 notify pgrst, 'reload schema';
 
 -- Optional test (creates rows — skip if you do not want test notifications):
